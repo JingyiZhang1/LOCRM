@@ -1,4 +1,3 @@
-
 ######################################################################################
 #  Local Continual Reassessment Methods for Dose Finding in Drug-Combination Trials  #
 #         Jingyi Zhang, Fangrong Yan, Nolan A. Wages∗ and Ruitao Lin*                #
@@ -37,9 +36,7 @@ locrm <- function(p.true.tox,target.tox,cutoff.tox,ntrial,nmax,cohortsize){
             pt[i] <- skeleton[i]^exp(a)
           }
           a ~ dnorm(0,1/var.a)
-          for(i in 1:ndose){
-            loglik[i] <- yy[i]*exp(a)*log(skeleton[i])+(nn[i]-yy[i])*log((1-skeleton[i]^exp(a)))
-          }
+          
         }
         "
   
@@ -102,8 +99,16 @@ locrm <- function(p.true.tox,target.tox,cutoff.tox,ntrial,nmax,cohortsize){
         t.sample <- coda.samples(jags,c('pt'),n.iter=2000,progress.bar="none")
         ptox.hat <- rbind(ptox.hat, colMeans(as.matrix(t.sample)))
         ptox.ppositive <- rbind(ptox.ppositive, colMeans(as.matrix(t.sample)>(target.tox+0.05)))
-        l.sample <- coda.samples(jags,c('loglik'),n.iter=2000,progress.bar="none")
-        loglik <- c(loglik, sum(as.matrix(l.sample))/2000)
+        
+        ndose_bma=length(orders.nz.curr)
+        yy_bma=y[sort(orders.nz.curr)]
+        nn_bma=n[sort(orders.nz.curr)]
+        skeleton_bma=ske[ip,]
+        a1 <- rnorm(10000,0,sqrt(2))
+        loglik_dose <- matrix(0,nrow=10000,ncol=ndose_bma)
+        for(i in 1:ndose_bma){
+          loglik_dose[,i] <- yy_bma[i]*exp(a1)*log(skeleton_bma[i])+(nn_bma[i]-yy_bma[i])*log((1-skeleton_bma[i]^exp(a1))) }
+        loglik <- c(loglik,mean(rowSums(loglik_dose)))
       }
       mprior.tox = rep(1/nrow(skeletons),nrow(skeletons));  # prior for each toxicity ordering
       postprob.tox = (exp(loglik)*mprior.tox)/sum(exp(loglik)*mprior.tox);
@@ -153,3 +158,4 @@ locrm <- function(p.true.tox,target.tox,cutoff.tox,ntrial,nmax,cohortsize){
 #                     c(0.30,0.45,0.50,0.60,0.75),
 #                     c(0.45,0.55,0.60,0.70,0.80))
 # locrm(p.true.tox,target.tox=0.3,cutoff.tox=0.95,ntrial=100,nmax=51,cohortsize=3)
+
