@@ -1,4 +1,3 @@
-
 ###########################################################################################
 #  Local Continual Reassessment Methods for Dose Optimization in Drug-Combination Trials  #
 #           Jingyi Zhang, Fangrong Yan, Nolan A. Wages∗ and Ruitao Lin*                   #
@@ -41,11 +40,9 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
             yy[i] ~ dbin(pt[i],nn[i])
             pt[i] <- skeleton[i]^exp(a)
           }
-          # a ~ dnorm(0,1)
+          
           a ~ dnorm(mean.a,1/var.a)
-          for(i in 1:ndose){
-            loglik[i] <- yy[i]*exp(a)*log(skeleton[i])+(nn[i]-yy[i])*log((1-skeleton[i]^exp(a)))
-          }
+          
         }
         "
   modelstring.E <- "
@@ -56,7 +53,6 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
               yy[i,j] ~ dbin(pe[i,j],nn[i,j])
             }
           }
-
           alpha ~ dnorm(mean.alpha,1/var.alpha)
           beta1 ~ dnorm(mean.beta1,1/var.beta1)
           beta2 ~ dnorm(mean.beta2,1/var.beta2)
@@ -179,8 +175,17 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
         t.sample <- coda.samples(jags,c('pt'),n.iter=2000,progress.bar="none")
         ptox.hat <- rbind(ptox.hat, colMeans(as.matrix(t.sample)))
         ptox.ppositive <- rbind(ptox.ppositive, colMeans(as.matrix(t.sample)>target.tox))
-        l.sample <- coda.samples(jags,c('loglik'),n.iter=2000,progress.bar="none")
-        loglik <- c(loglik, sum(as.matrix(l.sample))/2000)
+        
+        ndose_bma=length(orders.nz.curr)
+        yy_bma=y[sort(orders.nz.curr)]
+        nn_bma=n[sort(orders.nz.curr)]
+        skeleton_bma=ske[ip,]
+        a1 <- rnorm(10000,0,sqrt(2))
+        loglik_dose <- matrix(0,nrow=10000,ncol=ndose_bma)
+        for(i in 1:ndose_bma){
+          loglik_dose[,i] <- yy_bma[i]*exp(a1)*log(skeleton_bma[i])+(nn_bma[i]-yy_bma[i])*log((1-skeleton_bma[i]^exp(a1))) }
+        loglik <- c(loglik,mean(rowSums(loglik_dose)))
+        
       }
       mprior.tox = rep(1/nrow(ske),nrow(ske));  # prior for each toxicity ordering
       postprob.tox = (exp(loglik)*mprior.tox)/sum(exp(loglik)*mprior.tox);
@@ -309,4 +314,3 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
 # p.true.tox <- matrix(c(0.05,0.15,0.30,0.45,0.55,  0.15,0.30,0.45,0.55,0.65,  0.30,0.45,0.55,0.65,0.75),nrow = 3, byrow = TRUE)
 # p.true.eff <- matrix(c(0.05,0.25,0.50,0.55,0.60,  0.25,0.50,0.55,0.60,0.65,  0.50,0.55,0.60,0.65,0.70),nrow = 3, byrow = TRUE)
 # locrm12(p.true.tox,p.true.eff,target.tox=0.35,cutoff.tox=0.85,target.eff=0.2,cutoff.eff=0.9,nmax=51,cohortsize=3,ntrial=10)
-
