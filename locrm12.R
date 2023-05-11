@@ -30,7 +30,6 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
   
   SEL <- matrix(rep(0,length(p.true.tox)), nrow=ndrugA)
   TOX <- EFF <- PTS <- ELIMI <- array(0,c(ndrugA,ncol=ndrugB,ntrial))
-  comb.select <- matrix(0,nrow=ndrugA,ncol=ndrugB)
   comb.select.e <- matrix(0,nrow=ndrugB,ncol=ndrugA)
   PPE <- PHAT <- array(0,c(ndrugB,ncol=ndrugA,ntrial))
   
@@ -61,34 +60,18 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
           dof ~ dunif(dof1,dof2)
         }
         "
-  modelstring.Ef <- "
-        model {
-          for(i in 1:ndrugB){
-            for(j in 1:ndrugA){
-              pe[i,j] <- pt(alpha + beta1 * doseA[j] + beta2 * doseB[i] + gamma1 * doseA[j] * doseA[j] + gamma2 * doseB[i] * doseB[i],mean.t,var.t,dof)
-              yy[i,j] ~ dbin(pe[i,j],nn[i,j])
-            }
-          }
-          alpha ~ dnorm(mean.alpha,1/var.alpha)
-          beta1 ~ dnorm(mean.beta1,1/var.beta1)
-          beta2 ~ dnorm(mean.beta2,1/var.beta2)
-          gamma1 ~ dnorm(mean.gamma1,1/var.gamma1)
-          gamma2 ~ dnorm(mean.gamma2,1/var.gamma2)
-          dof ~ dunif(dof1,dof2)
-        }
-        "
   
   locationC1 <- NULL
   for(id in 1:ndrugB){locationC1 <- c(locationC1,rep(id,ndrugA))}
   locationC <- cbind(locationC1,
                      rep(1:ndrugA,ndrugB))
   locationM <- matrix(1:length(p.true.tox),nrow=ndrugB, byrow=T)
-  row.doseA <- c(0.08,0.16,0.24,0.32,0.40,0.48)
+  row.doseA <- c(0.08,0.16,0.24,0.32,0.40)
   doseA <- ((row.doseA[1:ndrugA]-mean(row.doseA[1:ndrugA]))/sqrt(var(row.doseA[1:ndrugA])))
   doseB <- ((row.doseA[1:ndrugB]-mean(row.doseA[1:ndrugB]))/sqrt(var(row.doseA[1:ndrugB])))
   
   for(trial in 1:ntrial){
-    y=yE=n=elimi=ptox.bma.matrix=peff.est.matrix=peff.monitor.matrix=ptox.post.prob.matrix=matrix(0,nrow=ndrugA,ncol=ndrugB)
+    y=yE=n=elimi=ptox.bma.matrix=peff.est.matrix=peff.monitor.matrix=matrix(0,nrow=ndrugA,ncol=ndrugB)
     comb.curr = 1;  # current dose level	 
     d.curr <- locationC[comb.curr,]
     
@@ -119,7 +102,6 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
     # main stage
     n1 <- sum(n)
     for(itwo in 0:((nmax-n1)/cohortsize)){
-      comb.curr0 <- comb.curr
       d.curr <- locationC[comb.curr,]
       if(itwo>0){
         y[comb.curr] = y[comb.curr] + sum(rbinom(cohortsize,1,r[comb.curr]))
@@ -137,8 +119,7 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
       
       # elimination rule
       if(pbeta(target.tox,1+y[1],1+n[1]-y[1],lower.tail = FALSE)>cutoff.tox){break}
-      if(pbeta(target.eff,1+yE[comb.curr0],1+n[comb.curr0]-yE[comb.curr0],lower.tail = TRUE)>cutoff.eff){
-        elimi[comb.curr0] <- 1}
+      if(pbeta(target.eff,1+yE[comb.curr],1+n[comb.curr]-yE[comb.curr],lower.tail = TRUE)>cutoff.eff){ elimi[comb.curr] <- 1}
       if(sum(elimi[adj])==length(elimi[adj])){break}
       
       orders[1,]<-c(adj[1],adj[2],adj[3],adj[4],adj[5])
@@ -160,42 +141,37 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
       if(sum(orders[1,]>0)==5){ske.use <- skeleton}
       orders.re <- matrix(orders[which(orders>0)],nrow=nrow(orders))
       ske <- getwm(orders.re,ske.use)
-      
       if(is.vector(ske)){ske <- t(as.matrix(ske))}
-      orders.nz <- ptox.hat <- ptox.ppositive <- loglik <- NULL
+      
+      orders.nz <- ptox.hat <- lik <- NULL
       for(ip in 1:nrow(ske)){
-        orders.nz.curr <- orders[ip,which(orders[ip,]>0)]
-        orders.nz <- rbind(orders.nz, orders.nz.curr)
-        jags.data <- list(ndose=length(orders.nz.curr),
-                          yy=y[sort(orders.nz.curr)],
-                          nn=n[sort(orders.nz.curr)], 
+        jags.data <- list(ndose=length(orders.re[1,]),
+                          yy=y[orders.re[1,]],
+                          nn=n[orders.re[1,]], 
                           skeleton=ske[ip,],
                           mean.a=0,var.a =2) 
         jags <- jags.model(textConnection(modelstring.T),data =jags.data,n.chains=1,n.adapt=5000,quiet=TRUE)
         t.sample <- coda.samples(jags,c('pt'),n.iter=2000,progress.bar="none")
         ptox.hat <- rbind(ptox.hat, colMeans(as.matrix(t.sample)))
-        ptox.ppositive <- rbind(ptox.ppositive, colMeans(as.matrix(t.sample)>target.tox))
         
-        ndose_bma=length(orders.nz.curr)
-        yy_bma=y[sort(orders.nz.curr)]
-        nn_bma=n[sort(orders.nz.curr)]
+        ndose_bma=length(orders.re[1,])
+        yy_bma=y[orders.re[1,]]
+        nn_bma=n[orders.re[1,]]
         skeleton_bma=ske[ip,]
         a1 <- rnorm(10000,0,sqrt(2))
         loglik_dose <- matrix(0,nrow=10000,ncol=ndose_bma)
         for(i in 1:ndose_bma){
           loglik_dose[,i] <- yy_bma[i]*exp(a1)*log(skeleton_bma[i])+(nn_bma[i]-yy_bma[i])*log((1-skeleton_bma[i]^exp(a1))) }
-        loglik <- c(loglik,mean(rowSums(loglik_dose)))
+        lik <- c(lik,mean(rowSums(exp(loglik_dose))))
         
       }
       mprior.tox = rep(1/nrow(ske),nrow(ske));  # prior for each toxicity ordering
-      postprob.tox = (exp(loglik)*mprior.tox)/sum(exp(loglik)*mprior.tox);
+      postprob.tox = (lik*mprior.tox)/sum(lik*mprior.tox);
       # BMA
       pp.tox <- matrix(rep(postprob.tox,dim(ptox.hat)[2]), nrow=dim(ptox.hat)[1])
       ptox.bma <- colSums(pp.tox*ptox.hat)
       adj.nz <- adj[which(adj>0)]
       ptox.bma.matrix[adj.nz] <- ptox.bma
-      ptox.post.prob <- colSums(pp.tox*ptox.ppositive)
-      ptox.post.prob.matrix[adj.nz] <- ptox.post.prob
       # select MTD among candidate set
       temp.mtd <- which(abs(ptox.bma.matrix[adj.nz]-target.tox)==min(abs(ptox.bma.matrix[adj.nz]-target.tox)))
       cand.set <- adj.nz[which(ptox.bma<=ptox.bma[temp.mtd])]
@@ -216,7 +192,7 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
                         mean.beta2=0.8, var.beta2 =1.3,
                         mean.gamma1=0,  var.gamma1 =1.3,
                         mean.gamma2=0,  var.gamma2 =1.3,
-                        mean.t=0,       var.t =1,
+                        mean.t=0,       var.t =2,
                         dof1=2,         dof2=10) 
       jags <- jags.model(textConnection(modelstring.E),data =jags.data,n.chains=1,n.adapt=5000,quiet=TRUE)
       e.sample <- coda.samples(jags,c('pe'),n.iter=2000,progress.bar="none")
@@ -238,36 +214,33 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
         }
       }
     }
+    
     if(sum(n) == nmax){
       # Isotonic regression
       phat = (y + 0.05)/(n + 0.1)
       phat = Iso::biviso(phat, n + 0.1, warn = TRUE)[,]
-      phat1 <- phat
       PHAT[,,trial]=t(phat)
       phat[elimi == 1] = 1.1
-      phat = phat * (n != 0) + (1e-05) * (matrix(rep(1:dim(n)[1], each = dim(n)[2], len = length(n)), dim(n)[1],
-                                                 byrow = T) + matrix(rep(1:dim(n)[2], each = dim(n)[1], len = length(n)), dim(n)[1]))
+      phat = phat + (1e-05) * (matrix(rep(1:dim(n)[1], each = dim(n)[2], len = length(n)), dim(n)[1], byrow = T) + 
+                                 matrix(rep(1:dim(n)[2], each = dim(n)[1], len = length(n)), dim(n)[1]))
       phat[n == 0] = 10
       comb.curr2 = which(abs(phat - target.tox) == min(abs(phat - target.tox)))
       if(length(comb.curr2)>1){
         comb.curr2 <- comb.curr2[sample(1:length(comb.curr2),1)] }
-      comb.select[comb.curr2]=comb.select[comb.curr2]+1;
       mtd <- locationC[comb.curr2,]
       
       # Efficacy analysis using all data
-      post.beta <- NULL
       jags.data <- list(yy=t(yE), nn=t(n), ndrugA=ndrugA, ndrugB=ndrugB,doseA=doseA,doseB=doseB,
                         mean.alpha=0,   var.alpha =1.3,
                         mean.beta1=0.8, var.beta1 =1.3,
                         mean.beta2=0.8, var.beta2 =1.3,
                         mean.gamma1=0,  var.gamma1 =1.3,
                         mean.gamma2=0,  var.gamma2 =1.3,
-                        mean.t=0,       var.t =1,
+                        mean.t=0,       var.t =2,
                         dof1=2,         dof2=10) 
-      jags <- jags.model(textConnection(modelstring.Ef),data =jags.data,n.chains=1,n.adapt=5000,quiet=TRUE)
+      jags <- jags.model(textConnection(modelstring.E),data =jags.data,n.chains=1,n.adapt=5000,quiet=TRUE)
       ppe.sample <- coda.samples(jags,c('pe'),n.iter=2000,progress.bar="none")
       ppe <- matrix(colMeans(as.matrix(ppe.sample)),nrow=ndrugB)
-      ppe.monitor <- matrix(colMeans(as.matrix(ppe.sample)<target.eff),nrow=ndrugB)
       PPE[,,trial]=ppe
       for(i in 1:ndrugB){
         for(j in 1:ndrugA){
@@ -303,14 +276,12 @@ locrm12 <- function(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutof
   sel.overtox <- sum(sel[overtox])
   pts.overtox <- sum(pts[overtox])
   
-  result.list <- list(sel = sel,
-                      tox=tox, eff = eff, pts = pts, 
-                      ntox = sum(y), neff = sum(yE), npts = sum(n), p.stop = 100-sum(sel)
-  );result.list
+  result.list <- list(sel = sel, tox=tox, eff = eff, pts = pts, 
+                      ntox = sum(y), neff = sum(yE), npts = sum(n), p.stop = 100-sum(sel) );result.list
   return(result.list)
 }
 
-## example ##
+# ## example ##
 # p.true.tox <- matrix(c(0.05,0.15,0.30,0.45,0.55,  0.15,0.30,0.45,0.55,0.65,  0.30,0.45,0.55,0.65,0.75),nrow = 3, byrow = TRUE)
 # p.true.eff <- matrix(c(0.05,0.25,0.50,0.55,0.60,  0.25,0.50,0.55,0.60,0.65,  0.50,0.55,0.60,0.65,0.70),nrow = 3, byrow = TRUE)
-# locrm12(p.true.tox,p.true.eff,target.tox=0.35,cutoff.tox=0.85,target.eff=0.2,cutoff.eff=0.9,nmax=51,cohortsize=3,ntrial=10)
+# locrm12(p.true.tox,p.true.eff,target.tox=0.35,cutoff.tox=0.85,target.eff=0.2,cutoff.eff=0.9,nmax=51,cohortsize=3,ntrial=100)
