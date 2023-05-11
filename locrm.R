@@ -46,13 +46,12 @@ locrm <- function(p.true.tox,target.tox,cutoff.tox,ntrial,nmax,cohortsize){
   locationM <- matrix(1:length(p.true.tox),nrow=ndrugB, byrow=T)
   
   for(trial in 1:ntrial){
-    y=n=ptox.post.prob.matrix=matrix(0,nrow=ndrugA,ncol=ndrugB)
+    y=n=matrix(0,nrow=ndrugA,ncol=ndrugB)
     comb.curr = 1;  # current dose level	 
     for(icohort in 1:ncohort){
       # monitoring dose (1,1)
       if(pbeta(target.tox,1+y[1],1+n[1]-y[1],lower.tail = FALSE)>cutoff.tox){break}
       # data generation
-      comb.curr0 <- comb.curr
       y[comb.curr] = y[comb.curr] + sum(rbinom(cohortsize,1,r[comb.curr]))
       n[comb.curr] = n[comb.curr] + cohortsize
       
@@ -77,70 +76,58 @@ locrm <- function(p.true.tox,target.tox,cutoff.tox,ntrial,nmax,cohortsize){
         # if a single ordering is inputed as a vector, convert it to a matrix
         orders <- t(as.matrix(orders))
       }
-      skeletons <- matrix(rep(0,5*nrow(orders)),ncol=5)
       ske.use <- NULL
       if(sum(orders[1,]>0)==3){ ske.use <- skeleton3 }
       if(sum(orders[1,]>0)==4){ ske.use <- skeleton4 }
       if(sum(orders[1,]>0)==5){ ske.use <- skeleton }
       orders.re <- matrix(orders[which(orders>0)],nrow=nrow(orders))
       ske <- getwm(orders.re,ske.use)
-      if(is.vector(skeletons)){skeletons <- t(as.matrix(skeletons))}
-      orders.nz <- ptox.hat <- ptox.ppositive <- loglik <- NULL
+      if(is.vector(ske)){ske <- t(as.matrix(ske))}
+      orders.nz <- ptox.hat <- lik <- NULL
       # model average
-      for(ip in 1:nrow(skeletons)){
-        orders.nz.curr <- orders[ip,which(orders[ip,]>0)]
-        orders.nz <- rbind(orders.nz, orders.nz.curr)
-        jags.data <- list(ndose=length(orders.nz.curr), # number of combos
-                          yy=y[sort(orders.nz.curr)],# number of toxicities
-                          nn=n[sort(orders.nz.curr)], # number of patients
+      for(ip in 1:nrow(orders)){
+        jags.data <- list(ndose=length(orders.re[1,]), # number of combos
+                          yy=y[orders.re[1,]],# number of toxicities
+                          nn=n[orders.re[1,]], # number of patients
                           skeleton=ske[ip,],
                           var.a=2)
         jags <- jags.model(textConnection(modelstring),data =jags.data,n.chains=1,n.adapt=5000,quiet=TRUE)
         t.sample <- coda.samples(jags,c('pt'),n.iter=2000,progress.bar="none")
         ptox.hat <- rbind(ptox.hat, colMeans(as.matrix(t.sample)))
-        ptox.ppositive <- rbind(ptox.ppositive, colMeans(as.matrix(t.sample)>(target.tox+0.05)))
         
-        ndose_bma=length(orders.nz.curr)
-        yy_bma=y[sort(orders.nz.curr)]
-        nn_bma=n[sort(orders.nz.curr)]
+        ndose_bma=length(orders.re[1,])
+        yy_bma=y[orders.re[1,]]
+        nn_bma=n[orders.re[1,]]
         skeleton_bma=ske[ip,]
         a1 <- rnorm(10000,0,sqrt(2))
         loglik_dose <- matrix(0,nrow=10000,ncol=ndose_bma)
         for(i in 1:ndose_bma){
           loglik_dose[,i] <- yy_bma[i]*exp(a1)*log(skeleton_bma[i])+(nn_bma[i]-yy_bma[i])*log((1-skeleton_bma[i]^exp(a1))) }
-        loglik <- c(loglik,mean(rowSums(loglik_dose)))
+        lik <- c(lik,mean(rowSums(exp(loglik_dose))))
       }
-      mprior.tox = rep(1/nrow(skeletons),nrow(skeletons));  # prior for each toxicity ordering
-      postprob.tox = (exp(loglik)*mprior.tox)/sum(exp(loglik)*mprior.tox);
+      mprior.tox = rep(1/nrow(orders),nrow(orders));  # prior for each toxicity ordering
+      postprob.tox = (lik*mprior.tox)/sum(lik*mprior.tox);
       pp.tox <- matrix(rep(postprob.tox,dim(ptox.hat)[2]), nrow=dim(ptox.hat)[1])
       adj.nz <- adj[which(adj>0)]
-      ptox.post.prob <- colSums(pp.tox*ptox.ppositive)
-      ptox.post.prob.matrix[adj.nz] <- ptox.post.prob
       loss=abs(colSums(pp.tox*ptox.hat)-target.tox)
       # dose assignment
-      if(is.vector(orders.nz)){orders.nz <- t(as.matrix(orders.nz))}
-      comb.curr <- sort(orders.nz[1,])[which(loss==min(loss))]
+      comb.curr <- sort(orders.re[1,])[which(loss==min(loss))]
       if(length(which(loss==min(loss)))>1){
-        if(loss[which(loss==min(loss))][1]>(target.tox-0.00001)){
-          comb.curr <- orders[mtox.sel,which(loss==min(loss))[length(which(loss==min(loss)))]]
-        }else{
-          comb.curr <- orders[sample(which(loss==min(loss)),size=1)] } }
-      
+        comb.curr <- orders[sample(which(loss==min(loss)),size=1)] }
     }
     if(sum(n) == nmax){
       # Isotonic regression
       phat = (y + 0.05)/(n + 0.1)
       phat = Iso::biviso(phat, n + 0.1, warn = TRUE)[,]
-      phat = phat * (n != 0) + (1e-05) * (matrix(rep(1:dim(n)[1], each = dim(n)[2], len = length(n)), dim(n)[1],
-                                                 byrow = T) + matrix(rep(1:dim(n)[2], each = dim(n)[1],
-                                                                         len = length(n)), dim(n)[1]))
+      phat = phat + (1e-05) * (matrix(rep(1:dim(n)[1], each = dim(n)[2], len = length(n)), dim(n)[1], byrow = T) + 
+                                 matrix(rep(1:dim(n)[2], each = dim(n)[1], len = length(n)), dim(n)[1]))
       phat[n == 0] = 10
       comb.curr2 = which(abs(phat - target.tox) == min(abs(phat - target.tox)))
       comb.select[comb.curr2]=comb.select[comb.curr2]+1;
     }
     TOX[,,trial]=y
     PTS[,,trial]=n
-  }    
+  }
   sel <- t(comb.select)*100/ntrial
   tox <- t(round(apply(TOX,c(1,2),mean),2));ntox=sum(tox)
   pts <- t(round(apply(PTS,c(1,2),mean),2));npts=sum(pts)
