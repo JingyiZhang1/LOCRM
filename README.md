@@ -10,13 +10,13 @@ Due to the limited sample size and large dose exploration space, obtaining a des
 
 The repository includes two functions:
 
-- locrm.R: The R code that includes the function ```locrm()``` to obtain the operating characteristics of the LOCRM design for single agent trials with late-onset toxicities by simulating trials.
+- locrm.R: The R code that includes the function ```locrm()``` to obtain the operating characteristics of the LOCRM design for dual agent trials by simulating trials.
   
   ```rscript
   locrm(p.true.tox,target.tox,cutoff.tox,ntrial,nmax,cohortsize)
   ```
   
-- locrm12.R: The R code that includes the function ```locrm12()``` to obtain the operating characteristics of the time-to-event model-assisted design for single agent trials with late-onset toxicities by simulating trials.
+- locrm12.R: The R code that includes the function ```locrm12()``` to obtain the operating characteristics of the LOCRM12 design for dual agent trials by simulating trials.
   
   ```rscipt
   locrm12(p.true.tox,p.true.eff,target.tox,cutoff.tox,target.eff,cutoff.eff,ntrial,nmax,cohortsize)
